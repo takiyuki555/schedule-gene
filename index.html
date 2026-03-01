@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旅のしおり</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600;700&family=Zen+Kaku+Gothic+New:wght@300;400;700&display=swap" rel="stylesheet">
+
+<!-- =====================================================
+  🔥 FIREBASE SETUP
+  1. https://console.firebase.google.com/ でプロジェクト作成
+  2. Realtime Database を有効化（テストモードでOK）
+  3. プロジェクト設定 > ウェブアプリ追加 > SDK設定をコピー
+  4. 下の firebaseConfig の中身を書き換えてください
+===================================================== -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+  import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
+
+  // ↓↓↓ ここを自分のFirebase設定に書き換える ↓↓↓
+  const firebaseConfig = {
+    apiKey: "AIzaSyA8zno2z8K5JfpBI3tWEYFU4ffBn4N10ug",
+    authDomain: "schedule-gene.firebaseapp.com",
+    databaseURL: "https://schedule-gene-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "schedule-gene",
+    storageBucket: "schedule-gene.firebasestorage.app",
+    messagingSenderId: "22637246336",
+    appId: "1:22637246336:web:a13c51712ad9a84ac9f365",
+    measurementId: "G-Q8J7JGRYNB"
+  };
+  // ↑↑↑ ここまで ↑↑↑
+
+  const DEMO_MODE = firebaseConfig.apiKey === "YOUR_API_KEY";
+
+  let app, db, dbRef;
+  if (!DEMO_MODE) {
+    app   = initializeApp(firebaseConfig);
+    db    = getDatabase(app);
+    dbRef = ref(db, 'itinerary');
+  }
+
+  // Expose to global scope
+  window.__firebase = { set, onValue, dbRef, DEMO_MODE };
+</script>
+
+<style>
+  :root {
+    --ink:#1a1209; --paper:#f5f0e8; --warm:#c8964a;
+    --red:#b03030; --sage:#5a7a5a; --sky:#4a6f8a;
+    --mist:#e8e0d0; --shadow:rgba(26,18,9,0.12);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--paper); background-image:radial-gradient(ellipse at 20% 50%,rgba(200,150,74,.05) 0%,transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(74,111,138,.05) 0%,transparent 60%); font-family:'Zen Kaku Gothic New',sans-serif; color:var(--ink); min-height:100vh; }
+
+  /* ── MODE BANNER ── */
+  .mode-banner { position:sticky; top:0; z-index:50; display:flex; align-items:center; justify-content:space-between; padding:8px 20px; font-size:0.78rem; letter-spacing:0.08em; backdrop-filter:blur(8px); }
+  .mode-banner.edit { background:rgba(26,18,9,0.92); color:white; }
+  .mode-banner.view { background:rgba(90,122,90,0.92); color:white; }
+  .banner-left { display:flex; align-items:center; gap:12px; }
+  .badge { display:flex; align-items:center; gap:6px; font-family:'Noto Serif JP',serif; font-size:0.8rem; }
+  .badge-dot { width:7px; height:7px; border-radius:50%; background:currentColor; opacity:0.7; }
+  .sync-status { font-size:0.7rem; opacity:0.6; letter-spacing:0.04em; }
+  .sync-status.saving { color:#f0c060; }
+  .sync-status.saved  { color:#80c080; }
+  .sync-status.demo   { color:#f08060; }
+  .share-btn { padding:5px 14px; border:1.5px solid rgba(255,255,255,0.35); background:transparent; color:white; border-radius:20px; cursor:pointer; font-size:0.75rem; font-family:'Zen Kaku Gothic New',sans-serif; transition:all 0.15s; }
+  .share-btn:hover { background:rgba(255,255,255,0.15); }
+
+  header { text-align:center; padding:40px 20px 28px; }
+  header::after { content:''; display:block; width:200px; height:2px; background:linear-gradient(90deg,transparent,var(--warm),transparent); margin:18px auto 0; }
+  h1 { font-family:'Noto Serif JP',serif; font-size:clamp(1.8rem,5vw,3.2rem); font-weight:700; letter-spacing:0.15em; }
+  h1 span { color:var(--warm); }
+  .subtitle { font-size:0.85rem; letter-spacing:0.3em; color:#888; margin-top:8px; font-weight:300; }
+
+  .app { max-width:1100px; margin:0 auto; padding:20px 20px 80px; display:grid; grid-template-columns:320px 1fr; gap:30px; align-items:start; }
+  .app.view-mode { grid-template-columns:1fr; }
+
+  /* ── PANEL ── */
+  .panel { background:white; border-radius:2px; box-shadow:4px 4px 0 var(--mist),0 1px 20px var(--shadow); overflow:hidden; position:sticky; top:48px; max-height:calc(100vh - 60px); overflow-y:auto; }
+  .panel-header { background:var(--ink); color:white; padding:16px 20px; font-family:'Noto Serif JP',serif; font-size:0.9rem; letter-spacing:0.1em; position:sticky; top:0; z-index:2; }
+  .panel-body { padding:16px; }
+  .form-group { margin-bottom:14px; }
+  label { display:block; font-size:0.75rem; letter-spacing:0.15em; color:#666; margin-bottom:5px; font-weight:700; }
+  input[type="text"],input[type="time"],textarea { width:100%; border:1.5px solid var(--mist); background:var(--paper); padding:8px 12px; font-family:'Zen Kaku Gothic New',sans-serif; font-size:0.88rem; color:var(--ink); border-radius:2px; outline:none; transition:border-color 0.2s; }
+  input:focus,textarea:focus { border-color:var(--warm); background:white; }
+  textarea { resize:vertical; min-height:52px; }
+  .type-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .type-btn { padding:8px 4px; border:1.5px solid var(--mist); background:var(--paper); border-radius:2px; cursor:pointer; font-size:0.72rem; text-align:center; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; color:var(--ink); display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .type-btn:hover { border-color:var(--warm); background:white; }
+  .type-btn.active { background:var(--ink); color:white; border-color:var(--ink); }
+  .type-btn .icon { font-size:1.2rem; }
+  .section-divider { height:1px; background:var(--mist); margin:14px 0; }
+  .station-row { display:grid; grid-template-columns:1fr auto 1fr; gap:6px; align-items:center; }
+  .station-arrow { font-size:1rem; color:#bbb; text-align:center; padding-top:18px; }
+  .color-row { display:flex; align-items:center; gap:10px; }
+  .color-row input[type="color"] { width:38px; height:38px; border:1.5px solid var(--mist); border-radius:2px; padding:2px; cursor:pointer; background:white; flex-shrink:0; }
+  .color-presets { display:flex; gap:5px; flex-wrap:wrap; flex:1; }
+  .color-preset { width:22px; height:22px; border-radius:50%; border:2.5px solid white; box-shadow:0 0 0 1.5px #ccc; cursor:pointer; transition:transform 0.1s,box-shadow 0.1s; flex-shrink:0; }
+  .color-preset:hover { transform:scale(1.2); box-shadow:0 0 0 1.5px #888; }
+  .color-preset.active { box-shadow:0 0 0 2.5px var(--ink); transform:scale(1.15); }
+  .line-style-grid { display:flex; gap:6px; }
+  .line-style-btn { flex:1; padding:7px 4px; border:1.5px solid var(--mist); background:var(--paper); border-radius:2px; cursor:pointer; font-size:0.7rem; text-align:center; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; color:var(--ink); display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .line-style-btn:hover { border-color:var(--warm); }
+  .line-style-btn.active { background:var(--ink); color:white; border-color:var(--ink); }
+  .line-preview-bar { width:100%; height:3px; border-radius:1px; }
+  .line-preview-bar.solid  { background:#999; }
+  .line-preview-bar.dashed { background:repeating-linear-gradient(90deg,#999 0,#999 5px,transparent 5px,transparent 10px); }
+  .line-preview-bar.dotted { background:repeating-linear-gradient(90deg,#999 0,#999 2px,transparent 2px,transparent 5px); }
+  .line-style-btn.active .line-preview-bar { background:rgba(255,255,255,0.5)!important; }
+  .transport-fields { display:none; } .transport-fields.show { display:block; }
+  .other-fields { display:block; } .other-fields.hide { display:none; }
+  .add-btn { width:100%; padding:12px; background:var(--warm); color:white; border:none; border-radius:2px; font-family:'Noto Serif JP',serif; font-size:0.9rem; letter-spacing:0.1em; cursor:pointer; transition:all 0.2s; margin-top:4px; }
+  .add-btn:hover { background:var(--ink); transform:translateY(-1px); }
+
+  /* Day tabs */
+  .day-tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .day-tab { padding:6px 14px; border:1.5px solid var(--mist); background:var(--paper); border-radius:20px; cursor:pointer; font-size:0.78rem; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; }
+  .day-tab:hover { border-color:var(--warm); }
+  .day-tab.active { background:var(--ink); color:white; border-color:var(--ink); }
+  .add-day-btn { padding:6px 14px; border:1.5px dashed var(--mist); background:transparent; border-radius:20px; cursor:pointer; font-size:0.78rem; color:#999; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; }
+  .add-day-btn:hover { border-color:var(--warm); color:var(--warm); }
+
+  /* ── TIMELINE ── */
+  .day-title { font-family:'Noto Serif JP',serif; font-size:1.4rem; font-weight:700; padding:0 0 12px; border-bottom:2px solid var(--ink); margin-bottom:8px; display:flex; align-items:baseline; gap:12px; }
+  .day-date { font-size:0.8rem; color:#888; font-weight:300; }
+  .timeline { position:relative; padding-left:104px; }
+  .timeline::before { content:''; position:absolute; left:81px; top:24px; bottom:24px; width:2px; background:var(--mist); z-index:0; }
+
+  .ev-wrap { position:relative; margin-bottom:6px; animation:slideIn 0.25s ease; }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+  .ev-time { position:absolute; left:-104px; top:10px; width:68px; text-align:right; font-family:'Noto Serif JP',serif; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .ev-time-start { font-size:1rem; font-weight:600; color:#555; line-height:1.1; }
+  .ev-time-sep   { font-size:0.65rem; color:#ccc; line-height:1; }
+  .ev-time-end   { font-size:1rem; font-weight:600; color:#aaa; line-height:1.1; }
+  .ev-dot { position:absolute; left:-22px; top:16px; width:12px; height:12px; border-radius:50%; border:2.5px solid white; background:var(--warm); box-shadow:0 0 0 1.5px var(--warm); z-index:2; }
+  .ev-dot.food       { background:var(--red);  box-shadow:0 0 0 1.5px var(--red); }
+  .ev-dot.sightseeing{ background:var(--sage); box-shadow:0 0 0 1.5px var(--sage); }
+  .ev-dot.hotel      { background:var(--warm); box-shadow:0 0 0 1.5px var(--warm); }
+  .ev-dot.memo       { background:#aaa; box-shadow:0 0 0 1.5px #aaa; }
+  .ev-dot.other      { background:#888; box-shadow:0 0 0 1.5px #888; }
+  .ev-card { background:white; border-radius:2px; padding:12px 16px; box-shadow:2px 2px 0 var(--mist); border-left:3px solid var(--warm); transition:all 0.2s; display:flex; align-items:flex-start; gap:10px; }
+  .ev-card.editable { cursor:pointer; }
+  .ev-card.editable:hover { transform:translateX(3px); box-shadow:4px 4px 0 var(--mist); }
+  .ev-card.editable:hover .ev-actions { opacity:1; }
+  .ev-card.food       { border-left-color:var(--red); }
+  .ev-card.sightseeing{ border-left-color:var(--sage); }
+  .ev-card.hotel      { border-left-color:var(--warm); }
+  .ev-card.memo       { border-left-color:#ccc; }
+  .ev-icon { font-size:1.1rem; flex-shrink:0; margin-top:1px; }
+  .ev-content { flex:1; min-width:0; }
+  .ev-title { font-family:'Noto Serif JP',serif; font-size:0.95rem; font-weight:600; }
+  .ev-sub { font-size:0.78rem; color:#888; margin-top:2px; line-height:1.4; }
+  .ev-actions { display:flex; gap:4px; opacity:0; transition:opacity 0.2s; flex-shrink:0; }
+  .icon-btn { width:26px; height:26px; border:1px solid var(--mist); background:white; border-radius:2px; cursor:pointer; font-size:0.85rem; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+  .icon-btn:hover { background:var(--red); color:white; border-color:var(--red); }
+  .ev-overlap { position:relative; margin-left:18px; padding-left:10px; border-left:2px dashed #ddd; margin-bottom:4px; }
+  .ev-overlap-badge { position:absolute; left:0; top:-12px; font-size:0.62rem; color:#bbb; white-space:nowrap; }
+
+  /* Transport */
+  .tr-block { position:relative; animation:slideIn 0.25s ease; }
+  .tr-station { position:relative; display:flex; align-items:center; gap:10px; padding:8px 0; }
+  .tr-time { position:absolute; left:-104px; width:68px; text-align:right; font-size:1rem; color:#666; font-weight:600; font-family:'Noto Serif JP',serif; top:50%; transform:translateY(-50%); }
+  .tr-dot { position:absolute; left:-22px; top:50%; transform:translateY(-50%); width:14px; height:14px; border-radius:50%; border:2.5px solid white; z-index:3; }
+  .tr-station-name { font-family:'Noto Serif JP',serif; font-size:1.05rem; font-weight:700; line-height:1.2; }
+  .tr-block-actions { position:absolute; top:8px; right:0; display:flex; gap:4px; opacity:0; transition:opacity 0.2s; z-index:5; }
+  .tr-block:hover .tr-block-actions { opacity:1; }
+  .tr-rail-wrap { position:relative; display:flex; align-items:center; min-height:44px; padding:0 0 0 20px; }
+  .tr-rail { position:absolute; left:-19px; top:0; bottom:0; width:6px; border-radius:3px; z-index:2; }
+  .tr-rail.dashed { background:none!important; border-left-width:6px; border-left-style:dashed; }
+  .tr-rail.dotted { background:none!important; border-left-width:6px; border-left-style:dotted; }
+  .tr-detail { display:flex; flex-direction:column; gap:3px; }
+  .tr-detail-main { font-size:0.82rem; color:#555; line-height:1.4; }
+  .tr-detail-cost { font-size:0.78rem; color:var(--warm); }
+  .ev-spacer { height:6px; }
+
+  /* Cost */
+  .cost-panel { background:var(--ink); color:white; padding:20px; border-radius:2px; margin-top:30px; }
+  .cost-title { font-family:'Noto Serif JP',serif; font-size:1rem; letter-spacing:0.1em; margin-bottom:14px; color:var(--warm); }
+  .cost-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.08); font-size:0.85rem; }
+  .cost-row:last-child { border:none; }
+  .cost-total { font-size:1.1rem; font-family:'Noto Serif JP',serif; color:var(--warm); }
+  .empty-state { text-align:center; padding:60px 20px; color:#bbb; }
+  .empty-state .big { font-size:3rem; margin-bottom:12px; }
+
+  /* Modals */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(26,18,9,0.55); z-index:200; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:white; border-radius:2px; box-shadow:8px 8px 0 var(--mist); padding:28px; width:100%; max-width:480px; max-height:92vh; overflow-y:auto; animation:modalIn 0.2s ease; }
+  @keyframes modalIn { from{opacity:0;transform:scale(0.95)} to{opacity:1;transform:scale(1)} }
+  .modal h3 { font-family:'Noto Serif JP',serif; margin-bottom:18px; font-size:1.1rem; }
+  .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+  .btn-cancel { padding:8px 20px; border:1.5px solid var(--mist); background:white; border-radius:2px; cursor:pointer; font-family:'Zen Kaku Gothic New',sans-serif; font-size:0.85rem; }
+  .btn-cancel:hover { background:var(--paper); }
+  .btn-save { padding:8px 20px; background:var(--warm); color:white; border:none; border-radius:2px; cursor:pointer; font-family:'Noto Serif JP',serif; font-size:0.85rem; }
+  .btn-save:hover { background:var(--ink); }
+
+  /* Share modal specifics */
+  .share-box { margin-bottom:16px; }
+  .share-box-label { font-size:0.72rem; letter-spacing:0.15em; color:#666; font-weight:700; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .pill { padding:2px 8px; border-radius:10px; font-size:0.65rem; }
+  .pill.edit-pill { background:var(--ink); color:white; }
+  .pill.view-pill { background:var(--sage); color:white; }
+  .link-row { display:flex; gap:6px; }
+  .link-input { flex:1; font-family:monospace; font-size:0.78rem; padding:8px 10px; border:1.5px solid var(--mist); border-radius:2px; background:var(--paper); color:#444; }
+  .copy-btn { padding:8px 14px; background:var(--ink); color:white; border:none; border-radius:2px; cursor:pointer; font-size:0.78rem; font-family:'Zen Kaku Gothic New',sans-serif; white-space:nowrap; }
+  .copy-btn:hover { background:var(--warm); }
+  .copy-btn.copied { background:var(--sage); }
+  .share-info { font-size:0.78rem; color:#888; line-height:1.6; margin-top:14px; padding:12px; background:var(--paper); border-radius:2px; }
+  .key-row { display:flex; gap:6px; margin-top:8px; }
+  .key-row input { flex:1; }
+  .key-gen-btn { padding:8px 12px; background:var(--mist); border:none; border-radius:2px; cursor:pointer; font-size:0.78rem; color:#555; white-space:nowrap; }
+  .key-gen-btn:hover { background:#d8d0c0; }
+  .demo-warning { background:#fff3e0; border:1.5px solid #f0c060; border-radius:2px; padding:12px; font-size:0.8rem; color:#8a5a00; line-height:1.6; margin-bottom:16px; }
+  .demo-warning strong { display:block; margin-bottom:4px; }
+
+  @media (max-width:768px) { .app{grid-template-columns:1fr} .panel{position:static} }
+</style>
+</head>
+<body>
+
+<div class="mode-banner" id="modeBanner">
+  <div class="banner-left">
+    <div class="badge"><div class="badge-dot"></div><span id="modeLabel"></span></div>
+    <span class="sync-status" id="syncStatus"></span>
+  </div>
+  <button class="share-btn" onclick="openShareModal()" id="shareBtn" style="display:none">🔗 共有リンクを作成</button>
+</div>
+
+<header>
+  <h1>旅の<span>しおり</span></h1>
+  <p class="subtitle">TRAVEL ITINERARY PLANNER</p>
+</header>
+
+<div class="app" id="appGrid">
+  <div id="editorPanel">
+    <div class="panel">
+      <div class="panel-header">📌 イベントを追加</div>
+      <div class="panel-body">
+        <div class="form-group">
+          <label>種別</label>
+          <div class="type-grid" id="typeGrid">
+            <button class="type-btn active" data-type="transport"><span class="icon">🚃</span>交通</button>
+            <button class="type-btn" data-type="food"><span class="icon">🍜</span>食事</button>
+            <button class="type-btn" data-type="sightseeing"><span class="icon">⛩️</span>観光</button>
+            <button class="type-btn" data-type="hotel"><span class="icon">🏨</span>宿泊</button>
+            <button class="type-btn" data-type="memo"><span class="icon">📝</span>メモ</button>
+            <button class="type-btn" data-type="other"><span class="icon">✨</span>その他</button>
+          </div>
+        </div>
+        <div class="transport-fields show" id="transportFields">
+          <div class="form-group">
+            <div class="station-row">
+              <div><label>出発駅・時刻</label><input type="text" id="inputFrom" placeholder="新大阪" /><input type="time" id="inputDepTime" style="margin-top:5px" /></div>
+              <div class="station-arrow">→</div>
+              <div><label>到着駅・時刻</label><input type="text" id="inputTo" placeholder="小田原" /><input type="time" id="inputArrTime" style="margin-top:5px" /></div>
+            </div>
+          </div>
+          <div class="form-group"><label>路線・詳細（線の横に表示）</label><input type="text" id="inputTransNote" placeholder="例：JR新幹線ひかり642号" /></div>
+          <div class="form-group"><label>費用（円）</label><input type="text" id="inputTransCost" placeholder="0" /></div>
+          <div class="section-divider"></div>
+          <div class="form-group">
+            <label>線の色</label>
+            <div class="color-row"><input type="color" id="inputLineColor" value="#4a6f8a" /><div class="color-presets" id="addColorPresets"></div></div>
+          </div>
+          <div class="form-group">
+            <label>線のスタイル</label>
+            <div class="line-style-grid" id="addStyleGrid">
+              <button class="line-style-btn active" data-style="solid"><div class="line-preview-bar solid"></div>実線</button>
+              <button class="line-style-btn" data-style="dashed"><div class="line-preview-bar dashed"></div>破線</button>
+              <button class="line-style-btn" data-style="dotted"><div class="line-preview-bar dotted"></div>点線</button>
+            </div>
+          </div>
+        </div>
+        <div class="other-fields hide" id="otherFields">
+          <div class="form-group">
+            <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:end;">
+              <div><label>開始時刻</label><input type="time" id="inputTime" /></div>
+              <div style="padding-bottom:9px;text-align:center;color:#bbb;">〜</div>
+              <div id="endTimeWrap"><label>終了時刻</label><input type="time" id="inputEndTime" /></div>
+            </div>
+          </div>
+          <div class="form-group"><label>タイトル</label><input type="text" id="inputTitle" placeholder="例：昼ごはん、強羅公園 etc." /></div>
+          <div class="form-group"><label>メモ・詳細</label><textarea id="inputNote" placeholder="メモ"></textarea></div>
+          <div class="form-group"><label>費用（円）</label><input type="text" id="inputCost" placeholder="0" /></div>
+        </div>
+        <button class="add-btn" onclick="addEvent()">＋ 追加する</button>
+      </div>
+    </div>
+    <div class="cost-panel"><div class="cost-title">💴 費用まとめ</div><div id="costRows"></div></div>
+  </div>
+
+  <div>
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+      <div class="day-tabs" id="dayTabs"></div>
+      <button class="add-day-btn" id="addDayBtn" onclick="addDay()" style="display:none">＋ 日程追加</button>
+    </div>
+    <div id="itinerary"></div>
+  </div>
+</div>
+
+<!-- Share Modal -->
+<div class="modal-overlay" id="shareModal">
+  <div class="modal">
+    <h3>🔗 共有リンク</h3>
+    <div class="demo-warning" id="demoWarning" style="display:none">
+      <strong>⚠️ デモモード（Firebase未設定）</strong>
+      データはこのブラウザのみに保存されます。<br>
+      Firebase設定後はリアルタイム共有が可能になります。
+    </div>
+    <div class="form-group">
+      <label>編集キー（秘密のパスワード）</label>
+      <div class="key-row">
+        <input type="text" id="editKeyInput" placeholder="英数字で入力" />
+        <button class="key-gen-btn" onclick="generateKey()">自動生成</button>
+      </div>
+    </div>
+    <div class="share-box">
+      <div class="share-box-label"><span class="pill edit-pill">✎ 編集者</span> 編集リンク</div>
+      <div class="link-row"><input class="link-input" id="editLink" readonly /><button class="copy-btn" onclick="copyLink('editLink',this)">コピー</button></div>
+    </div>
+    <div class="share-box">
+      <div class="share-box-label"><span class="pill view-pill">👁 観覧者</span> 観覧リンク</div>
+      <div class="link-row"><input class="link-input" id="viewLink" readonly /><button class="copy-btn" onclick="copyLink('viewLink',this)">コピー</button></div>
+    </div>
+    <div class="share-info">
+      💡 <strong>編集者リンク</strong>：キーを知っている人のみ編集可能<br>
+      💡 <strong>観覧リンク</strong>：リンクを持つ誰でも閲覧可能<br>
+      🔥 Firebaseを設定済みの場合、編集内容はリアルタイムで全員に反映されます
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeShareModal()">閉じる</button>
+      <button class="btn-save" onclick="applyKey()">キーを保存してリンク更新</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal: Transport -->
+<div class="modal-overlay" id="editTransModal">
+  <div class="modal">
+    <h3>🚃 交通を編集</h3>
+    <div class="form-group">
+      <div class="station-row">
+        <div><label>出発駅</label><input type="text" id="etFrom" /><input type="time" id="etDepTime" style="margin-top:5px" /></div>
+        <div class="station-arrow">→</div>
+        <div><label>到着駅</label><input type="text" id="etTo" /><input type="time" id="etArrTime" style="margin-top:5px" /></div>
+      </div>
+    </div>
+    <div class="form-group"><label>路線・詳細</label><input type="text" id="etNote" /></div>
+    <div class="form-group"><label>費用（円）</label><input type="text" id="etCost" /></div>
+    <div class="section-divider"></div>
+    <div class="form-group">
+      <label>線の色</label>
+      <div class="color-row"><input type="color" id="etLineColor" /><div class="color-presets" id="etColorPresets"></div></div>
+    </div>
+    <div class="form-group">
+      <label>線のスタイル</label>
+      <div class="line-style-grid" id="etStyleGrid">
+        <button class="line-style-btn active" data-style="solid"><div class="line-preview-bar solid"></div>実線</button>
+        <button class="line-style-btn" data-style="dashed"><div class="line-preview-bar dashed"></div>破線</button>
+        <button class="line-style-btn" data-style="dotted"><div class="line-preview-bar dotted"></div>点線</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModals()">キャンセル</button>
+      <button class="btn-save" onclick="saveTransEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal: Normal Event -->
+<div class="modal-overlay" id="editEvModal">
+  <div class="modal">
+    <h3 id="editEvTitle">📝 イベントを編集</h3>
+    <div class="form-group">
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:end;">
+        <div><label>開始時刻</label><input type="time" id="eeTime" /></div>
+        <div style="padding-bottom:9px;text-align:center;color:#bbb;">〜</div>
+        <div id="eeEndTimeWrap"><label>終了時刻</label><input type="time" id="eeEndTime" /></div>
+      </div>
+    </div>
+    <div class="form-group"><label>タイトル</label><input type="text" id="eeTitle" /></div>
+    <div class="form-group"><label>メモ・詳細</label><textarea id="eeNote"></textarea></div>
+    <div class="form-group"><label>費用（円）</label><input type="text" id="eeCost" /></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModals()">キャンセル</button>
+      <button class="btn-save" onclick="saveEvEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   MODE DETECTION
+   ?mode=view            → viewer
+   ?mode=edit&key=XXX    → editor if key matches
+   (no params)           → owner / editor
+═══════════════════════════════════════════════ */
+const params  = new URLSearchParams(location.search);
+const urlMode = params.get('mode');
+const urlKey  = params.get('key');
+
+// Edit key stored in localStorage
+const LS_KEY  = 'tabi-edit-key';
+const storedKey = localStorage.getItem(LS_KEY) || '';
+
+let isEditor = true;
+if (urlMode === 'view') {
+  isEditor = false;
+} else if (urlMode === 'edit' && urlKey) {
+  isEditor = !storedKey || storedKey === urlKey;
+}
+
+/* ── Apply UI mode ── */
+(function applyMode() {
+  const banner  = document.getElementById('modeBanner');
+  const label   = document.getElementById('modeLabel');
+  const panel   = document.getElementById('editorPanel');
+  const grid    = document.getElementById('appGrid');
+  const addDayB = document.getElementById('addDayBtn');
+  const shareB  = document.getElementById('shareBtn');
+
+  if (isEditor) {
+    banner.className = 'mode-banner edit';
+    label.textContent = '✎ 編集モード';
+    panel.style.display = 'block';
+    grid.classList.remove('view-mode');
+    addDayB.style.display = '';
+    shareB.style.display  = '';
+  } else {
+    banner.className = 'mode-banner view';
+    label.textContent = '👁 観覧モード（閲覧のみ）';
+    panel.style.display = 'none';
+    grid.classList.add('view-mode');
+    addDayB.style.display = 'none';
+    shareB.style.display  = 'none';
+  }
+})();
+
+/* ═══════════════════════════════════════════════
+   FIREBASE / LOCAL STORAGE
+═══════════════════════════════════════════════ */
+const LS_DATA_KEY = 'tabi-itinerary';
+let firebaseReady = false;
+let fb; // {set, onValue, dbRef}
+
+// Wait for Firebase module to be ready
+function waitForFirebase() {
+  return new Promise(resolve => {
+    const check = () => {
+      if (window.__firebase) { resolve(window.__firebase); }
+      else { setTimeout(check, 50); }
+    };
+    check();
+  });
+}
+
+async function initFirebase() {
+  fb = await waitForFirebase();
+  if (fb.DEMO_MODE) {
+    setSyncStatus('demo', '⚠ デモモード（Firebase未設定）');
+    loadFromLocalStorage();
+    return;
+  }
+  firebaseReady = true;
+  setSyncStatus('', '');
+  // Subscribe to realtime updates
+  fb.onValue(fb.dbRef, snapshot => {
+    const data = snapshot.val();
+    if (data && data.days && data.days.length) {
+      state.days = data.days;
+      if (!state.days.find(d => d.id === state.currentDay)) {
+        state.currentDay = state.days[0].id;
+      }
+      render();
+    } else {
+      // Nothing in Firebase yet → push default data (editor only)
+      if (isEditor) persistToFirebase();
+      render();
+    }
+  });
+}
+
+function loadFromLocalStorage() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_DATA_KEY));
+    if (saved && saved.days && saved.days.length) {
+      state.days = saved.days;
+      state.currentDay = state.days[0].id;
+    }
+  } catch(e) {}
+  render();
+}
+
+async function persist() {
+  if (!isEditor) return;
+  if (firebaseReady) {
+    await persistToFirebase();
+  } else {
+    // fallback: localStorage
+    try { localStorage.setItem(LS_DATA_KEY, JSON.stringify({ days: state.days })); } catch(e) {}
+  }
+}
+
+async function persistToFirebase() {
+  if (!fb || fb.DEMO_MODE) return;
+  setSyncStatus('saving', '保存中…');
+  try {
+    await fb.set(fb.dbRef, { days: state.days });
+    setSyncStatus('saved', '✓ 保存済み');
+    setTimeout(() => setSyncStatus('', ''), 2000);
+  } catch(e) {
+    setSyncStatus('demo', '保存失敗');
+  }
+}
+
+function setSyncStatus(cls, text) {
+  const el = document.getElementById('syncStatus');
+  el.className = 'sync-status' + (cls ? ' '+cls : '');
+  el.textContent = text;
+}
+
+/* ═══════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════ */
+const typeIcons = { food:'🍜', sightseeing:'⛩️', hotel:'🏨', memo:'📝', other:'✨' };
+const PRESETS   = ['#2563a8','#5a9a5a','#c8964a','#b03030','#6a4fa3','#2c7a7a','#d4845a','#1a1209'];
+
+let state = {
+  currentDay: 'd1',
+  selectedType: 'transport',
+  selectedLineStyle: 'solid',
+  days: [
+    {
+      id:'d1', label:'1日目', date:'',
+      events: [
+        {id:'e1',  type:'transport', from:'新大阪',   depTime:'08:19', to:'小田原',   arrTime:'10:38', note:'JR新幹線ひかり642号 東京行', cost:12650, lineColor:'#2563a8', lineStyle:'solid'},
+        {id:'e2',  type:'transport', from:'小田原',   depTime:'10:50', to:'箱根湯本', arrTime:'11:04', note:'箱根登山線',                cost:0,     lineColor:'#5a9a5a', lineStyle:'solid'},
+        {id:'e3',  type:'transport', from:'箱根湯本', depTime:'11:09', to:'強羅',     arrTime:'11:48', note:'箱根登山線',                cost:0,     lineColor:'#5a9a5a', lineStyle:'solid'},
+        {id:'e4',  type:'food',        time:'12:00', endTime:'12:30', title:'昼ごはん',             note:'強羅周辺', cost:0},
+        {id:'e5',  type:'sightseeing', time:'12:30', endTime:'13:40', title:'強羅公園',             note:'', cost:0},
+        {id:'e6',  type:'transport', from:'強羅',     depTime:'13:46', to:'早雲山',   arrTime:'13:57', note:'箱根登山ケーブルカー',      cost:0,     lineColor:'#c8964a', lineStyle:'dashed'},
+        {id:'e7',  type:'transport', from:'早雲山',   depTime:'13:57', to:'大涌谷',   arrTime:'14:07', note:'箱根ロープウェイ',          cost:0,     lineColor:'#c8964a', lineStyle:'dashed'},
+        {id:'e8',  type:'sightseeing', time:'14:07', endTime:'15:00', title:'大涌谷・くろたまご',   note:'', cost:0},
+        {id:'e9',  type:'transport', from:'大涌谷',   depTime:'15:07', to:'早雲山',   arrTime:'15:17', note:'箱根ロープウェイ',          cost:0,     lineColor:'#c8964a', lineStyle:'dashed'},
+        {id:'e10', type:'transport', from:'早雲山',   depTime:'15:28', to:'強羅',     arrTime:'15:39', note:'箱根登山ケーブルカー',      cost:0,     lineColor:'#c8964a', lineStyle:'dashed'},
+        {id:'e11', type:'transport', from:'強羅',     depTime:'15:53', to:'箱根湯本', arrTime:'16:33', note:'箱根登山線',                cost:0,     lineColor:'#5a9a5a', lineStyle:'solid'},
+        {id:'e12', type:'hotel',       time:'16:50', title:'天成園 チェックイン', note:'徒歩17分', cost:0},
+        {id:'e13', type:'food',        time:'17:30', title:'夕食',               note:'', cost:0},
+        {id:'e14', type:'memo',        time:'19:00', title:'箱根湯本 散策（気分次第）', note:'', cost:0},
+        {id:'e15', type:'hotel',       time:'21:00', title:'ホテルに戻る',       note:'', cost:0},
+      ]
+    },
+    {
+      id:'d2', label:'2日目', date:'',
+      events: [
+        {id:'f1',  type:'food',        time:'07:00', title:'朝ごはん',         note:'ホテルにて', cost:0},
+        {id:'f2',  type:'hotel',       time:'09:45', title:'チェックアウト',   note:'', cost:0},
+        {id:'f3',  type:'food',        time:'10:30', title:'昼ごはん',         note:'箱根湯本周辺', cost:0},
+        {id:'f4',  type:'transport', from:'箱根湯本', depTime:'11:50', to:'箱根神社', arrTime:'12:16', note:'R箱根新道線',         cost:0, lineColor:'#b03030', lineStyle:'solid'},
+        {id:'f5',  type:'sightseeing', time:'12:16', endTime:'12:56', title:'箱根神社 参拝', note:'', cost:0},
+        {id:'f6',  type:'transport', from:'元箱根港', depTime:'13:25', to:'桃源台',   arrTime:'13:50', note:'海賊船',              cost:0, lineColor:'#2c7a7a', lineStyle:'dotted'},
+        {id:'f7',  type:'transport', from:'桃源台',   depTime:'14:30', to:'箱根町港', arrTime:'14:55', note:'海賊船',              cost:0, lineColor:'#2c7a7a', lineStyle:'dotted'},
+        {id:'f8',  type:'sightseeing', time:'14:55', title:'箱根町港 観光',   note:'', cost:0},
+        {id:'f9',  type:'transport', from:'箱根町港', depTime:'16:18', to:'小田原',   arrTime:'17:11', note:'座席指定バス',        cost:500,   lineColor:'#4a6f8a', lineStyle:'solid'},
+        {id:'f10', type:'transport', from:'小田原',   depTime:'18:03', to:'新大阪',   arrTime:'20:27', note:'JR新幹線ひかり653号', cost:12850, lineColor:'#2563a8', lineStyle:'solid'},
+      ]
+    }
+  ]
+};
+
+function genId() { return 'ev'+Date.now()+Math.random().toString(36).slice(2,5); }
+
+/* ═══════════════════════════════════════════════
+   UI SETUP
+═══════════════════════════════════════════════ */
+function buildPresets(wrapId, pickerId) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  PRESETS.forEach(hex => {
+    const b = document.createElement('button');
+    b.className='color-preset'; b.style.background=hex; b.title=hex;
+    b.onclick = () => {
+      document.getElementById(pickerId).value = hex;
+      wrap.querySelectorAll('.color-preset').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+    };
+    wrap.appendChild(b);
+  });
+}
+buildPresets('addColorPresets','inputLineColor');
+buildPresets('etColorPresets','etLineColor');
+['inputLineColor','etLineColor'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => {
+    const wId = id==='inputLineColor' ? 'addColorPresets' : 'etColorPresets';
+    document.querySelectorAll('#'+wId+' .color-preset').forEach(b=>b.classList.remove('active'));
+  });
+});
+
+if (isEditor) {
+  document.querySelectorAll('#typeGrid .type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#typeGrid .type-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      state.selectedType = btn.dataset.type;
+      const isTr = state.selectedType === 'transport';
+      document.getElementById('transportFields').classList.toggle('show', isTr);
+      document.getElementById('otherFields').classList.toggle('hide', isTr);
+      if (!isTr) document.getElementById('endTimeWrap').style.visibility = state.selectedType==='hotel'?'hidden':'visible';
+    });
+  });
+  document.querySelectorAll('#addStyleGrid .line-style-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#addStyleGrid .line-style-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      state.selectedLineStyle = btn.dataset.style;
+    });
+  });
+  document.querySelectorAll('#etStyleGrid .line-style-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#etStyleGrid .line-style-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   CRUD
+═══════════════════════════════════════════════ */
+function addEvent() {
+  if (!isEditor) return;
+  const day = state.days.find(d=>d.id===state.currentDay);
+  let ev;
+  if (state.selectedType === 'transport') {
+    const from=document.getElementById('inputFrom').value.trim();
+    const to=document.getElementById('inputTo').value.trim();
+    if (!from||!to) {
+      if (!from) document.getElementById('inputFrom').style.borderColor='#b03030';
+      if (!to)   document.getElementById('inputTo').style.borderColor='#b03030';
+      return;
+    }
+    document.getElementById('inputFrom').style.borderColor='';
+    document.getElementById('inputTo').style.borderColor='';
+    ev = { id:genId(), type:'transport',
+           from, depTime:document.getElementById('inputDepTime').value,
+           to,   arrTime:document.getElementById('inputArrTime').value,
+           note:document.getElementById('inputTransNote').value.trim(),
+           cost:parseInt(document.getElementById('inputTransCost').value)||0,
+           lineColor:document.getElementById('inputLineColor').value||'#4a6f8a',
+           lineStyle:state.selectedLineStyle };
+    ['inputFrom','inputTo','inputTransNote','inputTransCost'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('inputDepTime').value=''; document.getElementById('inputArrTime').value='';
+  } else {
+    const title=document.getElementById('inputTitle').value.trim();
+    if (!title) { document.getElementById('inputTitle').style.borderColor='#b03030'; return; }
+    document.getElementById('inputTitle').style.borderColor='';
+    const endTime = state.selectedType==='hotel' ? '' : document.getElementById('inputEndTime').value;
+    ev = { id:genId(), type:state.selectedType,
+           time:document.getElementById('inputTime').value, endTime, title,
+           note:document.getElementById('inputNote').value.trim(),
+           cost:parseInt(document.getElementById('inputCost').value)||0 };
+    ['inputTitle','inputNote','inputCost'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('inputEndTime').value='';
+  }
+  day.events.push(ev);
+  sortEvents(day);
+  persist(); render();
+}
+
+function sortEvents(day) {
+  day.events.sort((a,b)=>{
+    const ta=a.type==='transport'?(a.depTime||''):(a.time||'');
+    const tb=b.type==='transport'?(b.depTime||''):(b.time||'');
+    return ta.localeCompare(tb);
+  });
+}
+
+function deleteEvent(dayId, evId) {
+  if (!isEditor) return;
+  const day=state.days.find(d=>d.id===dayId);
+  day.events=day.events.filter(e=>e.id!==evId);
+  persist(); render();
+}
+
+let editCtx=null;
+function openEditTransport(dayId, evId) {
+  if (!isEditor) return;
+  const day=state.days.find(d=>d.id===dayId);
+  const ev=day.events.find(e=>e.id===evId);
+  editCtx={dayId,evId};
+  document.getElementById('etFrom').value=ev.from||'';
+  document.getElementById('etDepTime').value=ev.depTime||'';
+  document.getElementById('etTo').value=ev.to||'';
+  document.getElementById('etArrTime').value=ev.arrTime||'';
+  document.getElementById('etNote').value=ev.note||'';
+  document.getElementById('etCost').value=ev.cost||'';
+  const lc=ev.lineColor||'#4a6f8a'; const ls=ev.lineStyle||'solid';
+  document.getElementById('etLineColor').value=lc;
+  document.querySelectorAll('#etColorPresets .color-preset').forEach(b=>b.classList.toggle('active',b.title===lc));
+  document.querySelectorAll('#etStyleGrid .line-style-btn').forEach(b=>b.classList.toggle('active',b.dataset.style===ls));
+  document.getElementById('editTransModal').classList.add('open');
+}
+function saveTransEdit() {
+  if (!editCtx) return;
+  const day=state.days.find(d=>d.id===editCtx.dayId);
+  const ev=day.events.find(e=>e.id===editCtx.evId);
+  ev.from=document.getElementById('etFrom').value;
+  ev.depTime=document.getElementById('etDepTime').value;
+  ev.to=document.getElementById('etTo').value;
+  ev.arrTime=document.getElementById('etArrTime').value;
+  ev.note=document.getElementById('etNote').value;
+  ev.cost=parseInt(document.getElementById('etCost').value)||0;
+  ev.lineColor=document.getElementById('etLineColor').value;
+  const a=document.querySelector('#etStyleGrid .line-style-btn.active');
+  ev.lineStyle=a?a.dataset.style:'solid';
+  sortEvents(day); closeModals(); persist(); render();
+}
+function openEditEvent(dayId, evId) {
+  if (!isEditor) return;
+  const day=state.days.find(d=>d.id===dayId);
+  const ev=day.events.find(e=>e.id===evId);
+  editCtx={dayId,evId};
+  document.getElementById('editEvTitle').textContent=(typeIcons[ev.type]||'✨')+' イベントを編集';
+  document.getElementById('eeTime').value=ev.time||'';
+  document.getElementById('eeEndTime').value=ev.endTime||'';
+  document.getElementById('eeTitle').value=ev.title||'';
+  document.getElementById('eeNote').value=ev.note||'';
+  document.getElementById('eeCost').value=ev.cost||'';
+  document.getElementById('eeEndTimeWrap').style.visibility=ev.type==='hotel'?'hidden':'visible';
+  document.getElementById('editEvModal').classList.add('open');
+}
+function saveEvEdit() {
+  if (!editCtx) return;
+  const day=state.days.find(d=>d.id===editCtx.dayId);
+  const ev=day.events.find(e=>e.id===editCtx.evId);
+  ev.time=document.getElementById('eeTime').value;
+  ev.endTime=ev.type==='hotel'?'':document.getElementById('eeEndTime').value;
+  ev.title=document.getElementById('eeTitle').value;
+  ev.note=document.getElementById('eeNote').value;
+  ev.cost=parseInt(document.getElementById('eeCost').value)||0;
+  sortEvents(day); closeModals(); persist(); render();
+}
+function closeModals() {
+  ['editTransModal','editEvModal'].forEach(id=>document.getElementById(id).classList.remove('open'));
+  editCtx=null;
+}
+['editTransModal','editEvModal'].forEach(id=>{
+  document.getElementById(id).addEventListener('click',e=>{if(e.target.id===id)closeModals();});
+});
+
+function addDay() {
+  if (!isEditor) return;
+  const n=state.days.length+1;
+  state.days.push({id:genId(),label:`${n}日目`,date:'',events:[]});
+  state.currentDay=state.days[state.days.length-1].id;
+  persist(); render();
+}
+function selectDay(id) { state.currentDay=id; render(); }
+
+/* ═══════════════════════════════════════════════
+   SHARE
+═══════════════════════════════════════════════ */
+function openShareModal() {
+  const key=localStorage.getItem(LS_KEY)||'';
+  document.getElementById('editKeyInput').value=key;
+  refreshLinks(key);
+  if (fb && fb.DEMO_MODE) document.getElementById('demoWarning').style.display='block';
+  document.getElementById('shareModal').classList.add('open');
+}
+function closeShareModal() { document.getElementById('shareModal').classList.remove('open'); }
+document.getElementById('shareModal').addEventListener('click',e=>{if(e.target.id==='shareModal')closeShareModal();});
+
+function generateKey() {
+  const k=Math.random().toString(36).slice(2,10).toUpperCase();
+  document.getElementById('editKeyInput').value=k;
+  refreshLinks(k);
+}
+function applyKey() {
+  const k=document.getElementById('editKeyInput').value.trim();
+  if (!k) { alert('編集キーを入力してください'); return; }
+  localStorage.setItem(LS_KEY,k);
+  refreshLinks(k);
+}
+function refreshLinks(key) {
+  const base=location.href.split('?')[0];
+  document.getElementById('editLink').value=`${base}?mode=edit&key=${encodeURIComponent(key||'YOUR_KEY')}`;
+  document.getElementById('viewLink').value=`${base}?mode=view`;
+}
+function copyLink(inputId,btn) {
+  const val=document.getElementById(inputId).value;
+  navigator.clipboard.writeText(val).then(()=>{
+    const orig=btn.textContent; btn.textContent='コピー済 ✓'; btn.classList.add('copied');
+    setTimeout(()=>{btn.textContent=orig;btn.classList.remove('copied');},2000);
+  }).catch(()=>{document.getElementById(inputId).select();document.execCommand('copy');});
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER
+═══════════════════════════════════════════════ */
+function render() { renderTabs(); renderItinerary(); if(isEditor) renderCosts(); }
+
+function renderTabs() {
+  document.getElementById('dayTabs').innerHTML=state.days.map(d=>
+    `<button class="day-tab ${d.id===state.currentDay?'active':''}" onclick="selectDay('${d.id}')">${d.label}</button>`
+  ).join('');
+}
+
+function renderItinerary() {
+  const el=document.getElementById('itinerary');
+  const day=state.days.find(d=>d.id===state.currentDay);
+  if (!day) return;
+  if (!day.events.length) {
+    el.innerHTML=`<div class="empty-state"><div class="big">🗺️</div><p>${isEditor?'まだイベントがありません<br>左のパネルから追加してください':'まだイベントがありません'}</p></div>`;
+    return;
+  }
+  let html=`<div class="day-section"><div class="day-title">${day.label}<span class="day-date">${day.date||''}</span></div><div class="timeline">`;
+
+  for (let i=0;i<day.events.length;i++) {
+    const ev=day.events[i];
+    const next=day.events[i+1];
+
+    if (ev.type==='transport') {
+      const color=ev.lineColor||'#4a6f8a', style=ev.lineStyle||'solid';
+      const railStyle=style==='solid'?`background:${color}`:`border-left-color:${color}`;
+      const editBtns=isEditor?`<div class="tr-block-actions"><button class="icon-btn" onclick="openEditTransport('${day.id}','${ev.id}')">✎</button><button class="icon-btn" onclick="deleteEvent('${day.id}','${ev.id}')">✕</button></div>`:'';
+      html+=`<div class="tr-block">${editBtns}
+        <div class="tr-station"><div class="tr-time">${ev.depTime||''}</div><div class="tr-dot" style="background:${color};box-shadow:0 0 0 1.5px ${color}"></div><div class="tr-station-name">${ev.from||'—'}</div></div>
+        <div class="tr-rail-wrap"><div class="tr-rail ${style}" style="${railStyle}"></div><div class="tr-detail">${ev.note?`<div class="tr-detail-main">${ev.note}</div>`:''} ${ev.cost?`<div class="tr-detail-cost">¥${ev.cost.toLocaleString()}</div>`:''}</div></div>
+        <div class="tr-station"><div class="tr-time">${ev.arrTime||''}</div><div class="tr-dot" style="background:${color};box-shadow:0 0 0 1.5px ${color}"></div><div class="tr-station-name">${ev.to||'—'}</div></div>
+      </div>`;
+      if (next) html+=`<div class="ev-spacer"></div>`;
+
+    } else {
+      let isOverlap=false;
+      for (let k=i-1;k>=0&&!isOverlap;k--) {
+        const pk=day.events[k];
+        const pkEnd=pk.type==='transport'?pk.arrTime:pk.endTime;
+        const pkStart=pk.type==='transport'?pk.depTime:pk.time;
+        if (!pkEnd) break;
+        const ts=ev.time||'';
+        if (ts&&ts<pkEnd) isOverlap=true;
+        if (pkStart&&ts>=pkStart) break;
+      }
+      const hasEnd=ev.type!=='hotel'&&ev.endTime;
+      const timeHtml=hasEnd
+        ?`<span class="ev-time-start">${ev.time||''}</span><span class="ev-time-sep">｜</span><span class="ev-time-end">${ev.endTime}</span>`
+        :`<span class="ev-time-start">${ev.time||''}</span>`;
+      const wc=isOverlap?'ev-wrap ev-overlap':'ev-wrap';
+      const badge=isOverlap?`<div class="ev-overlap-badge">同時進行</div>`:'';
+      const cc=isEditor?`ev-card ${ev.type} editable`:`ev-card ${ev.type}`;
+      const click=isEditor?`onclick="openEditEvent('${day.id}','${ev.id}')"`:'';
+      const acts=isEditor?`<div class="ev-actions"><button class="icon-btn" onclick="event.stopPropagation();deleteEvent('${day.id}','${ev.id}')">✕</button></div>`:'';
+      html+=`<div class="${wc}">${badge}<div class="ev-time">${timeHtml}</div><div class="ev-dot ${ev.type}"></div>
+        <div class="${cc}" ${click}><div class="ev-icon">${typeIcons[ev.type]||'✨'}</div>
+          <div class="ev-content"><div class="ev-title">${ev.title}</div>${ev.note?`<div class="ev-sub">${ev.note}</div>`:''}${ev.cost?`<div class="ev-sub" style="color:var(--warm)">¥${ev.cost.toLocaleString()}</div>`:''}</div>${acts}</div></div>`;
+      if (next) html+=`<div class="ev-spacer"></div>`;
+    }
+  }
+  html+=`</div></div>`;
+  el.innerHTML=html;
+}
+
+function renderCosts() {
+  const el=document.getElementById('costRows');
+  if(!el) return;
+  let total=0,rows=[];
+  state.days.forEach(d=>{const s=d.events.reduce((a,e)=>a+(e.cost||0),0);if(s){rows.push({label:d.label,amount:s});total+=s;}});
+  if(!rows.length){el.innerHTML=`<div class="cost-row"><span style="color:#666">まだ費用がありません</span></div>`;return;}
+  el.innerHTML=rows.map(r=>`<div class="cost-row"><span>${r.label}</span><span>¥${r.amount.toLocaleString()}</span></div>`).join('')+
+    `<div class="cost-row" style="padding-top:10px"><span class="cost-total">合計</span><span class="cost-total">¥${total.toLocaleString()}</span></div>`;
+}
+
+/* ═══════════════════════════════════════════════
+   BOOT
+═══════════════════════════════════════════════ */
+initFirebase();
+</script>
+</body>
+</html>

@@ -15,32 +15,29 @@
 ===================================================== -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
-  import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
+  import { getDatabase, ref, set, onValue, push, remove } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
 
-  // ↓↓↓ ここを自分のFirebase設定に書き換える ↓↓↓
   const firebaseConfig = {
-    apiKey: "AIzaSyA8zno2z8K5JfpBI3tWEYFU4ffBn4N10ug",
-    authDomain: "schedule-gene.firebaseapp.com",
-    databaseURL: "https://schedule-gene-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "schedule-gene",
-    storageBucket: "schedule-gene.firebasestorage.app",
+    apiKey:            "AIzaSyA8zno2z8K5JfpBI3tWEYFU4ffBn4N10ug",
+    authDomain:        "schedule-gene.firebaseapp.com",
+    databaseURL:       "https://schedule-gene-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:         "schedule-gene",
+    storageBucket:     "schedule-gene.firebasestorage.app",
     messagingSenderId: "22637246336",
-    appId: "1:22637246336:web:a13c51712ad9a84ac9f365",
-    measurementId: "G-Q8J7JGRYNB"
+    appId:             "1:22637246336:web:a13c51712ad9a84ac9f365"
   };
-  // ↑↑↑ ここまで ↑↑↑
 
   const DEMO_MODE = firebaseConfig.apiKey === "YOUR_API_KEY";
 
-  let app, db, dbRef;
+  let app, db, rootRef;
   if (!DEMO_MODE) {
-    app   = initializeApp(firebaseConfig);
-    db    = getDatabase(app);
-    dbRef = ref(db, 'itinerary');
+    app     = initializeApp(firebaseConfig);
+    db      = getDatabase(app);
+    rootRef = ref(db, 'itineraries');
   }
 
   // Expose to global scope
-  window.__firebase = { set, onValue, dbRef, DEMO_MODE };
+  window.__firebase = { set, onValue, push, remove, ref: (path) => db ? ref(db, path) : null, rootRef, DEMO_MODE };
 </script>
 
 <style>
@@ -114,9 +111,12 @@
 
   /* Day tabs */
   .day-tabs { display:flex; gap:6px; flex-wrap:wrap; }
-  .day-tab { padding:6px 14px; border:1.5px solid var(--mist); background:var(--paper); border-radius:20px; cursor:pointer; font-size:0.78rem; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; }
+  .day-tab { padding:6px 12px; border:1.5px solid var(--mist); background:var(--paper); border-radius:20px; cursor:pointer; font-size:0.78rem; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; display:flex; align-items:center; gap:5px; }
   .day-tab:hover { border-color:var(--warm); }
   .day-tab.active { background:var(--ink); color:white; border-color:var(--ink); }
+  .day-tab .day-del { font-size:0.65rem; opacity:0; cursor:pointer; padding:0 1px; transition:opacity 0.15s; }
+  .day-tab:hover .day-del, .day-tab.active .day-del { opacity:0.5; }
+  .day-tab .day-del:hover { opacity:1!important; }
   .add-day-btn { padding:6px 14px; border:1.5px dashed var(--mist); background:transparent; border-radius:20px; cursor:pointer; font-size:0.78rem; color:#999; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; }
   .add-day-btn:hover { border-color:var(--warm); color:var(--warm); }
 
@@ -214,6 +214,18 @@
   .demo-warning strong { display:block; margin-bottom:4px; }
 
   @media (max-width:768px) { .app{grid-template-columns:1fr} .panel{position:static} }
+
+  /* ── ITINERARY SELECTOR ── */
+  .itin-bar { background:white; border-bottom:1.5px solid var(--mist); padding:10px 20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .itin-bar-label { font-size:0.72rem; letter-spacing:0.15em; color:#999; font-weight:700; white-space:nowrap; }
+  .itin-tabs { display:flex; gap:6px; flex-wrap:wrap; flex:1; }
+  .itin-tab { padding:5px 14px; border:1.5px solid var(--mist); background:var(--paper); border-radius:20px; cursor:pointer; font-size:0.8rem; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; display:flex; align-items:center; gap:6px; }
+  .itin-tab:hover { border-color:var(--warm); }
+  .itin-tab.active { background:var(--warm); color:white; border-color:var(--warm); }
+  .itin-tab .itin-del { font-size:0.7rem; opacity:0.6; cursor:pointer; padding:0 2px; transition:opacity 0.1s; }
+  .itin-tab.active .itin-del:hover { opacity:1; }
+  .add-itin-btn { padding:5px 12px; border:1.5px dashed var(--mist); background:transparent; border-radius:20px; cursor:pointer; font-size:0.78rem; color:#999; transition:all 0.15s; font-family:'Zen Kaku Gothic New',sans-serif; white-space:nowrap; }
+  .add-itin-btn:hover { border-color:var(--warm); color:var(--warm); }
 </style>
 </head>
 <body>
@@ -230,6 +242,13 @@
   <h1>旅の<span>しおり</span></h1>
   <p class="subtitle">TRAVEL ITINERARY PLANNER</p>
 </header>
+
+<!-- Itinerary selector bar (editor only) -->
+<div class="itin-bar" id="itinBar" style="display:none">
+  <span class="itin-bar-label">📋 しおり</span>
+  <div class="itin-tabs" id="itinTabs"></div>
+  <button class="add-itin-btn" onclick="createItinerary()">＋ 新しいしおり</button>
+</div>
 
 <div class="app" id="appGrid">
   <div id="editorPanel">
@@ -391,15 +410,10 @@
 <script>
 /* ═══════════════════════════════════════════════
    MODE DETECTION
-   ?mode=view            → viewer
-   ?mode=edit&key=XXX    → editor if key matches
-   (no params)           → owner / editor
 ═══════════════════════════════════════════════ */
 const params  = new URLSearchParams(location.search);
 const urlMode = params.get('mode');
 const urlKey  = params.get('key');
-
-// Edit key stored in localStorage
 const LS_KEY  = 'tabi-edit-key';
 const storedKey = localStorage.getItem(LS_KEY) || '';
 
@@ -410,7 +424,6 @@ if (urlMode === 'view') {
   isEditor = !storedKey || storedKey === urlKey;
 }
 
-/* ── Apply UI mode ── */
 (function applyMode() {
   const banner  = document.getElementById('modeBanner');
   const label   = document.getElementById('modeLabel');
@@ -418,6 +431,7 @@ if (urlMode === 'view') {
   const grid    = document.getElementById('appGrid');
   const addDayB = document.getElementById('addDayBtn');
   const shareB  = document.getElementById('shareBtn');
+  const itinBar = document.getElementById('itinBar');
 
   if (isEditor) {
     banner.className = 'mode-banner edit';
@@ -426,6 +440,7 @@ if (urlMode === 'view') {
     grid.classList.remove('view-mode');
     addDayB.style.display = '';
     shareB.style.display  = '';
+    itinBar.style.display = '';
   } else {
     banner.className = 'mode-banner view';
     label.textContent = '👁 観覧モード（閲覧のみ）';
@@ -433,23 +448,27 @@ if (urlMode === 'view') {
     grid.classList.add('view-mode');
     addDayB.style.display = 'none';
     shareB.style.display  = 'none';
+    itinBar.style.display = 'none';
   }
 })();
 
 /* ═══════════════════════════════════════════════
    FIREBASE / LOCAL STORAGE
+   Data structure:
+     itineraries/
+       {itinId}/
+         name: "箱根旅行"
+         days: [...]
 ═══════════════════════════════════════════════ */
-const LS_DATA_KEY = 'tabi-itinerary';
+const LS_DATA_KEY = 'tabi-itineraries';
 let firebaseReady = false;
-let fb; // {set, onValue, dbRef}
+let fb;
+// flag to suppress onValue re-render during our own writes
+let _suppressOnValue = false;
 
-// Wait for Firebase module to be ready
 function waitForFirebase() {
   return new Promise(resolve => {
-    const check = () => {
-      if (window.__firebase) { resolve(window.__firebase); }
-      else { setTimeout(check, 50); }
-    };
+    const check = () => { if (window.__firebase) resolve(window.__firebase); else setTimeout(check, 50); };
     check();
   });
 }
@@ -463,29 +482,30 @@ async function initFirebase() {
   }
   firebaseReady = true;
   setSyncStatus('', '');
-  // Subscribe to realtime updates
-  fb.onValue(fb.dbRef, snapshot => {
-    const data = snapshot.val();
-    if (data && data.days && data.days.length) {
-      state.days = data.days;
-      if (!state.days.find(d => d.id === state.currentDay)) {
-        state.currentDay = state.days[0].id;
+  fb.onValue(fb.rootRef, snapshot => {
+    if (_suppressOnValue) return;
+    const raw = snapshot.val();
+    if (raw) {
+      // Merge: rebuild itineraries list from Firebase
+      const fromFb = Object.entries(raw).map(([id, val]) => ({ id, name: val.name || '無題', days: val.days || [] }));
+      state.itineraries = fromFb;
+      if (!state.itineraries.find(it => it.id === state.currentItinId)) {
+        state.currentItinId = state.itineraries[0]?.id || null;
       }
-      render();
     } else {
-      // Nothing in Firebase yet → push default data (editor only)
-      if (isEditor) persistToFirebase();
-      render();
+      // First time: push default
+      if (isEditor) persistAll();
     }
+    render();
   });
 }
 
 function loadFromLocalStorage() {
   try {
     const saved = JSON.parse(localStorage.getItem(LS_DATA_KEY));
-    if (saved && saved.days && saved.days.length) {
-      state.days = saved.days;
-      state.currentDay = state.days[0].id;
+    if (saved && saved.itineraries && saved.itineraries.length) {
+      state.itineraries = saved.itineraries;
+      state.currentItinId = state.itineraries[0].id;
     }
   } catch(e) {}
   render();
@@ -493,24 +513,49 @@ function loadFromLocalStorage() {
 
 async function persist() {
   if (!isEditor) return;
+  const itin = currentItin();
+  if (!itin) return;
   if (firebaseReady) {
-    await persistToFirebase();
+    _suppressOnValue = true;
+    setSyncStatus('saving', '保存中…');
+    try {
+      await fb.set(fb.ref('itineraries/' + itin.id), { name: itin.name, days: itin.days });
+      setSyncStatus('saved', '✓ 保存済み');
+      setTimeout(() => { setSyncStatus('', ''); _suppressOnValue = false; }, 1500);
+    } catch(e) {
+      setSyncStatus('demo', '保存失敗'); _suppressOnValue = false;
+    }
   } else {
-    // fallback: localStorage
-    try { localStorage.setItem(LS_DATA_KEY, JSON.stringify({ days: state.days })); } catch(e) {}
+    lsSave();
   }
 }
 
-async function persistToFirebase() {
-  if (!fb || fb.DEMO_MODE) return;
-  setSyncStatus('saving', '保存中…');
-  try {
-    await fb.set(fb.dbRef, { days: state.days });
-    setSyncStatus('saved', '✓ 保存済み');
-    setTimeout(() => setSyncStatus('', ''), 2000);
-  } catch(e) {
-    setSyncStatus('demo', '保存失敗');
+async function persistAll() {
+  if (!isEditor) return;
+  if (firebaseReady) {
+    _suppressOnValue = true;
+    try {
+      const obj = {};
+      state.itineraries.forEach(it => { obj[it.id] = { name: it.name, days: it.days }; });
+      await fb.set(fb.rootRef, obj);
+      _suppressOnValue = false;
+    } catch(e) { _suppressOnValue = false; }
+  } else {
+    lsSave();
   }
+}
+
+async function deleteItinFromFirebase(itinId) {
+  if (!firebaseReady) return;
+  _suppressOnValue = true;
+  try {
+    await fb.set(fb.ref('itineraries/' + itinId), null);
+    setTimeout(() => { _suppressOnValue = false; }, 500);
+  } catch(e) { _suppressOnValue = false; }
+}
+
+function lsSave() {
+  try { localStorage.setItem(LS_DATA_KEY, JSON.stringify({ itineraries: state.itineraries })); } catch(e) {}
 }
 
 function setSyncStatus(cls, text) {
@@ -525,10 +570,9 @@ function setSyncStatus(cls, text) {
 const typeIcons = { food:'🍜', sightseeing:'⛩️', hotel:'🏨', memo:'📝', other:'✨' };
 const PRESETS   = ['#2563a8','#5a9a5a','#c8964a','#b03030','#6a4fa3','#2c7a7a','#d4845a','#1a1209'];
 
-let state = {
-  currentDay: 'd1',
-  selectedType: 'transport',
-  selectedLineStyle: 'solid',
+const DEFAULT_ITIN = {
+  id: 'itin1',
+  name: '箱根旅行',
   days: [
     {
       id:'d1', label:'1日目', date:'',
@@ -568,7 +612,62 @@ let state = {
   ]
 };
 
-function genId() { return 'ev'+Date.now()+Math.random().toString(36).slice(2,5); }
+let state = {
+  itineraries: [JSON.parse(JSON.stringify(DEFAULT_ITIN))],
+  currentItinId: 'itin1',
+  currentDay: 'd1',
+  selectedType: 'transport',
+  selectedLineStyle: 'solid',
+};
+
+function genId() { return 'id'+Date.now()+Math.random().toString(36).slice(2,5); }
+function currentItin() { return state.itineraries.find(it=>it.id===state.currentItinId)||null; }
+
+/* ═══════════════════════════════════════════════
+   ITINERARY MANAGEMENT
+═══════════════════════════════════════════════ */
+function createItinerary() {
+  if (!isEditor) return;
+  const name = prompt('新しいしおりの名前を入力してください', '新しい旅行');
+  if (!name) return;
+  const newItin = { id: genId(), name, days: [{ id: genId(), label: '1日目', date: '', events: [] }] };
+  state.itineraries.push(newItin);
+  state.currentItinId = newItin.id;
+  state.currentDay = newItin.days[0].id;
+  persistAll(); render();
+}
+
+function selectItinerary(id) {
+  if (state.currentItinId === id) return;
+  state.currentItinId = id;
+  const itin = currentItin();
+  state.currentDay = itin?.days[0]?.id || null;
+  render();
+}
+
+function deleteItinerary(id, e) {
+  e.stopPropagation();
+  if (!isEditor) return;
+  if (state.itineraries.length <= 1) { alert('最後のしおりは削除できません'); return; }
+  const itin = state.itineraries.find(it=>it.id===id);
+  if (!confirm(`「${itin?.name}」を削除しますか？`)) return;
+  deleteItinFromFirebase(id);
+  state.itineraries = state.itineraries.filter(it=>it.id!==id);
+  if (state.currentItinId === id) {
+    state.currentItinId = state.itineraries[0].id;
+    state.currentDay = state.itineraries[0].days[0]?.id || null;
+  }
+  lsSave(); render();
+}
+
+function renameItinerary(id) {
+  const itin = state.itineraries.find(it=>it.id===id);
+  if (!itin) return;
+  const name = prompt('しおりの名前を変更', itin.name);
+  if (!name || name === itin.name) return;
+  itin.name = name;
+  persist(); render();
+}
 
 /* ═══════════════════════════════════════════════
    UI SETUP
@@ -626,11 +725,12 @@ if (isEditor) {
 }
 
 /* ═══════════════════════════════════════════════
-   CRUD
+   CRUD — now operates on currentItin().days
 ═══════════════════════════════════════════════ */
 function addEvent() {
   if (!isEditor) return;
-  const day = state.days.find(d=>d.id===state.currentDay);
+  const itin = currentItin(); if (!itin) return;
+  const day = itin.days.find(d=>d.id===state.currentDay); if (!day) return;
   let ev;
   if (state.selectedType === 'transport') {
     const from=document.getElementById('inputFrom').value.trim();
@@ -678,7 +778,8 @@ function sortEvents(day) {
 
 function deleteEvent(dayId, evId) {
   if (!isEditor) return;
-  const day=state.days.find(d=>d.id===dayId);
+  const itin = currentItin(); if (!itin) return;
+  const day=itin.days.find(d=>d.id===dayId); if (!day) return;
   day.events=day.events.filter(e=>e.id!==evId);
   persist(); render();
 }
@@ -686,7 +787,8 @@ function deleteEvent(dayId, evId) {
 let editCtx=null;
 function openEditTransport(dayId, evId) {
   if (!isEditor) return;
-  const day=state.days.find(d=>d.id===dayId);
+  const itin=currentItin(); if(!itin) return;
+  const day=itin.days.find(d=>d.id===dayId);
   const ev=day.events.find(e=>e.id===evId);
   editCtx={dayId,evId};
   document.getElementById('etFrom').value=ev.from||'';
@@ -703,7 +805,8 @@ function openEditTransport(dayId, evId) {
 }
 function saveTransEdit() {
   if (!editCtx) return;
-  const day=state.days.find(d=>d.id===editCtx.dayId);
+  const itin=currentItin(); if(!itin) return;
+  const day=itin.days.find(d=>d.id===editCtx.dayId);
   const ev=day.events.find(e=>e.id===editCtx.evId);
   ev.from=document.getElementById('etFrom').value;
   ev.depTime=document.getElementById('etDepTime').value;
@@ -718,7 +821,8 @@ function saveTransEdit() {
 }
 function openEditEvent(dayId, evId) {
   if (!isEditor) return;
-  const day=state.days.find(d=>d.id===dayId);
+  const itin=currentItin(); if(!itin) return;
+  const day=itin.days.find(d=>d.id===dayId);
   const ev=day.events.find(e=>e.id===evId);
   editCtx={dayId,evId};
   document.getElementById('editEvTitle').textContent=(typeIcons[ev.type]||'✨')+' イベントを編集';
@@ -732,7 +836,8 @@ function openEditEvent(dayId, evId) {
 }
 function saveEvEdit() {
   if (!editCtx) return;
-  const day=state.days.find(d=>d.id===editCtx.dayId);
+  const itin=currentItin(); if(!itin) return;
+  const day=itin.days.find(d=>d.id===editCtx.dayId);
   const ev=day.events.find(e=>e.id===editCtx.evId);
   ev.time=document.getElementById('eeTime').value;
   ev.endTime=ev.type==='hotel'?'':document.getElementById('eeEndTime').value;
@@ -751,9 +856,24 @@ function closeModals() {
 
 function addDay() {
   if (!isEditor) return;
-  const n=state.days.length+1;
-  state.days.push({id:genId(),label:`${n}日目`,date:'',events:[]});
-  state.currentDay=state.days[state.days.length-1].id;
+  const itin = currentItin(); if (!itin) return;
+  const n=itin.days.length+1;
+  const newDay={id:genId(),label:`${n}日目`,date:'',events:[]};
+  itin.days.push(newDay);
+  state.currentDay=newDay.id;
+  persist(); render();
+}
+function deleteDay(dayId) {
+  if (!isEditor) return;
+  const itin = currentItin(); if (!itin) return;
+  if (itin.days.length <= 1) { alert('最後の日程は削除できません'); return; }
+  const day = itin.days.find(d=>d.id===dayId);
+  if (!confirm(`「${day?.label}」を削除しますか？
+イベントも全て削除されます。`)) return;
+  itin.days = itin.days.filter(d=>d.id!==dayId);
+  if (state.currentDay === dayId) {
+    state.currentDay = itin.days[0].id;
+  }
   persist(); render();
 }
 function selectDay(id) { state.currentDay=id; render(); }
@@ -798,18 +918,37 @@ function copyLink(inputId,btn) {
 /* ═══════════════════════════════════════════════
    RENDER
 ═══════════════════════════════════════════════ */
-function render() { renderTabs(); renderItinerary(); if(isEditor) renderCosts(); }
+function render() { renderItinTabs(); renderTabs(); renderItinerary(); if(isEditor) renderCosts(); }
+
+function renderItinTabs() {
+  if (!isEditor) return;
+  const wrap = document.getElementById('itinTabs');
+  wrap.innerHTML = state.itineraries.map(it => `
+    <button class="itin-tab ${it.id===state.currentItinId?'active':''}"
+            onclick="selectItinerary('${it.id}')"
+            ondblclick="renameItinerary('${it.id}')">
+      ${it.name}
+      <span class="itin-del" onclick="deleteItinerary('${it.id}',event)" title="削除">✕</span>
+    </button>`).join('');
+}
 
 function renderTabs() {
-  document.getElementById('dayTabs').innerHTML=state.days.map(d=>
-    `<button class="day-tab ${d.id===state.currentDay?'active':''}" onclick="selectDay('${d.id}')">${d.label}</button>`
-  ).join('');
+  const itin = currentItin();
+  const days = itin?.days || [];
+  const canDelete = isEditor && days.length > 1;
+  document.getElementById('dayTabs').innerHTML=days.map(d=>{
+    const del = canDelete
+      ? `<span class="day-del" onclick="event.stopPropagation();deleteDay('${d.id}')" title="この日程を削除">✕</span>`
+      : '';
+    return `<button class="day-tab ${d.id===state.currentDay?'active':''}" onclick="selectDay('${d.id}')">${d.label}${del}</button>`;
+  }).join('');
 }
 
 function renderItinerary() {
   const el=document.getElementById('itinerary');
-  const day=state.days.find(d=>d.id===state.currentDay);
-  if (!day) return;
+  const itin = currentItin();
+  const day = itin?.days.find(d=>d.id===state.currentDay);
+  if (!day) { el.innerHTML=`<div class="empty-state"><div class="big">🗺️</div><p>日程を選択してください</p></div>`; return; }
   if (!day.events.length) {
     el.innerHTML=`<div class="empty-state"><div class="big">🗺️</div><p>${isEditor?'まだイベントがありません<br>左のパネルから追加してください':'まだイベントがありません'}</p></div>`;
     return;
@@ -864,8 +1003,10 @@ function renderItinerary() {
 function renderCosts() {
   const el=document.getElementById('costRows');
   if(!el) return;
+  const itin=currentItin();
+  const days=itin?.days||[];
   let total=0,rows=[];
-  state.days.forEach(d=>{const s=d.events.reduce((a,e)=>a+(e.cost||0),0);if(s){rows.push({label:d.label,amount:s});total+=s;}});
+  days.forEach(d=>{const s=d.events.reduce((a,e)=>a+(e.cost||0),0);if(s){rows.push({label:d.label,amount:s});total+=s;}});
   if(!rows.length){el.innerHTML=`<div class="cost-row"><span style="color:#666">まだ費用がありません</span></div>`;return;}
   el.innerHTML=rows.map(r=>`<div class="cost-row"><span>${r.label}</span><span>¥${r.amount.toLocaleString()}</span></div>`).join('')+
     `<div class="cost-row" style="padding-top:10px"><span class="cost-total">合計</span><span class="cost-total">¥${total.toLocaleString()}</span></div>`;
